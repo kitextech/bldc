@@ -54,6 +54,7 @@ typedef struct {
 	float i_abs_filter;
 	float i_bus;
 	float v_bus;
+	float v_bus_faster; // kitex
 	float v_alpha;
 	float v_beta;
 	float mod_d;
@@ -2059,6 +2060,8 @@ bool mcpwm_foc_hall_detect(float current, uint8_t *hall_table) {
 void mcpwm_foc_print_state(void) {
 	commands_printf("Mod d:        %.2f", (double)motor_now()->m_motor_state.mod_d);
 	commands_printf("Mod q:        %.2f", (double)motor_now()->m_motor_state.mod_q);
+	commands_printf("V_bus_faster: %.2f", (double)motor_now()->m_motor_state.v_bus_faster);
+	commands_printf("lo_in_cur_ma: %.2f", (double)motor_now()->m_conf->lo_in_current_min);
 	commands_printf("Duty:         %.2f", (double)motor_now()->m_motor_state.duty_now);
 	commands_printf("Vd:           %.2f", (double)motor_now()->m_motor_state.vd);
 	commands_printf("Vq:           %.2f", (double)motor_now()->m_motor_state.vq);
@@ -2307,6 +2310,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 	dt *= (float)FOC_CONTROL_LOOP_FREQ_DIVIDER;
 
 	UTILS_LP_FAST(motor_now->m_motor_state.v_bus, GET_INPUT_VOLTAGE(), 0.1);
+	UTILS_LP_FAST(motor_now->m_motor_state.v_bus_faster, GET_INPUT_VOLTAGE(), 0.3);
 
 	volatile float enc_ang = 0;
 	volatile bool encoder_is_being_used = false;
@@ -2535,11 +2539,35 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 		// Apply current limits
 		// TODO: Consider D axis current for the input current as well.
+
+
+
+		// // 
+		float battery_high_cut_start = 40.0;
+		float battery_high_cut_end = 45.0;
+
+		// High Voltage Cutoff // by KiteX
+		float lo_in_min_batt = 0.0;
+		if (motor_now->m_motor_state.v_bus_faster < battery_high_cut_start) {
+			lo_in_min_batt = conf_now->l_in_current_min;
+		} else if (motor_now->m_motor_state.v_bus_faster > battery_high_cut_end) {
+			lo_in_min_batt = 0.0;
+		} else {
+			lo_in_min_batt = utils_map(motor_now->m_motor_state.v_bus_faster, battery_high_cut_start,
+					battery_high_cut_end, conf_now->l_in_current_min, 0.0);
+		}
+
+		float lo_in_current_min = utils_min_abs(conf_now->lo_in_current_min, lo_in_min_batt);
+
+		// // conf_now->lo_in_current_min = utils_min_abs(conf_now->l_in_current_min, lo_in_min_batt);
+
 		const float mod_q = motor_now->m_motor_state.mod_q;
 		if (mod_q > 0.001) {
 			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
+			// utils_truncate_number(&iq_set_tmp, lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
 		} else if (mod_q < -0.001) {
 			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, conf_now->lo_in_current_min / mod_q);
+			// utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, lo_in_current_min / mod_q);
 		}
 
 		if (mod_q > 0.0) {
