@@ -55,6 +55,7 @@ typedef struct {
 	float i_bus;
 	float v_bus;
 	float v_bus_faster; // kitex
+	float v_bus_slow; // kitex
 	float v_alpha;
 	float v_beta;
 	float mod_d;
@@ -2311,6 +2312,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 	UTILS_LP_FAST(motor_now->m_motor_state.v_bus, GET_INPUT_VOLTAGE(), 0.1);
 	UTILS_LP_FAST(motor_now->m_motor_state.v_bus_faster, GET_INPUT_VOLTAGE(), 0.3);
+	UTILS_LP_FAST(motor_now->m_motor_state.v_bus_slow, GET_INPUT_VOLTAGE(), 0.0000499); // decay 1-e^(-1/20000) http://www.dspguide.com/ch19/2.htm decay to 38% after 1 second / 20k samples
 
 	volatile float enc_ang = 0;
 	volatile bool encoder_is_being_used = false;
@@ -2568,8 +2570,12 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 
 		// trick the MPPT to keep the voltage high, by reducing power when voltage goes below a threshold.
-		float battery_low_cut_start = 41.0;
-		float battery_low_cut_end = 39.0;
+
+		float battery_low_cut_center_max = 40.0;
+		float battery_low_cut_center = utils_min_abs(motor_now->m_motor_state.v_bus_slow, battery_low_cut_center_max); // v_bus_slow;
+
+		float battery_low_cut_start = battery_low_cut_center + 1; // max 41
+		float battery_low_cut_end = battery_low_cut_center - 1; // no min.
 		float maximum_reduction_ratio = 0.7; // percent.  
 		float reduction_ratio = 1.0;
 		
