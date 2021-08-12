@@ -2542,63 +2542,75 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 		// Apply current limits
 		// TODO: Consider D axis current for the input current as well.
 
-		// High Voltage Cutoff // by KiteX
-		float battery_high_cut_start = 42.0;
-		float battery_high_cut_end = 45.0;
+		// // High Voltage Cutoff // by KiteX
+		// float battery_high_cut_start = 42.0;
+		// float battery_high_cut_end = 45.0;
 
-		float lo_in_min_batt = 0.0;
-		if (motor_now->m_motor_state.v_bus_faster < battery_high_cut_start) {
-			lo_in_min_batt = conf_now->l_in_current_min;
-		} else if (motor_now->m_motor_state.v_bus_faster > battery_high_cut_end) {
-			lo_in_min_batt = 0.0;
-		} else {
-			lo_in_min_batt = utils_map(motor_now->m_motor_state.v_bus_faster, battery_high_cut_start,
-					battery_high_cut_end, conf_now->l_in_current_min, 0.0);
-		}
+		// float lo_in_min_batt = 0.0;
+		// if (motor_now->m_motor_state.v_bus_faster < battery_high_cut_start) {
+		// 	lo_in_min_batt = conf_now->l_in_current_min;
+		// } else if (motor_now->m_motor_state.v_bus_faster > battery_high_cut_end) {
+		// 	lo_in_min_batt = 0.0;
+		// } else {
+		// 	lo_in_min_batt = utils_map(motor_now->m_motor_state.v_bus_faster, battery_high_cut_start,
+		// 			battery_high_cut_end, conf_now->l_in_current_min, 0.0);
+		// }
 
-		float lo_in_current_min = utils_min_abs(conf_now->lo_in_current_min, lo_in_min_batt);
+		// float lo_in_current_min = utils_min_abs(conf_now->lo_in_current_min, lo_in_min_batt);
 
 		const float mod_q = motor_now->m_motor_state.mod_q;
 		if (mod_q > 0.001) {
-			// utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q); // original
-			utils_truncate_number(&iq_set_tmp, lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
+			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q); // original
+			// utils_truncate_number(&iq_set_tmp, lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
 		} else if (mod_q < -0.001) {
-			// utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, conf_now->lo_in_current_min / mod_q); // original
-			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, lo_in_current_min / mod_q);
+			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, conf_now->lo_in_current_min / mod_q); // original
+			// utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, lo_in_current_min / mod_q);
 		}
-		// // High votlage cutoff end
+		// // // High votlage cutoff end
 
 
-		// trick the MPPT to keep the voltage high, by reducing power when voltage goes below a threshold.
+		// // trick the MPPT to keep the voltage high, by reducing power when voltage goes below a threshold.
 
-		float battery_low_cut_center_max = 40.0;
-		float battery_low_cut_center = utils_min_abs(motor_now->m_motor_state.v_bus_slow, battery_low_cut_center_max); // v_bus_slow;
+		// float battery_low_cut_center_max = 40.0;
+		// float battery_low_cut_center = utils_min_abs(motor_now->m_motor_state.v_bus_slow, battery_low_cut_center_max); // v_bus_slow;
 
-		float battery_low_cut_start = battery_low_cut_center + 1; // max 41
-		float battery_low_cut_end = battery_low_cut_center - 1; // no min.
-		float maximum_reduction_ratio = 0.7; // percent.  
+		// float battery_low_cut_start = battery_low_cut_center + 1; // max 41
+		// float battery_low_cut_end = battery_low_cut_center - 1; // no min.
+		// float maximum_reduction_ratio = 0.7; // percent.  
+		// float reduction_ratio = 1.0;
+		
+		// if (motor_now->m_motor_state.v_bus_faster > battery_low_cut_start) {
+		// 	reduction_ratio = 1.0;
+		// } else if (motor_now->m_motor_state.v_bus_faster < battery_low_cut_end) {
+		// 	reduction_ratio = maximum_reduction_ratio;
+		// } else {
+		// 	reduction_ratio = utils_map(motor_now->m_motor_state.v_bus_faster, battery_low_cut_start,
+		// 			battery_low_cut_end, 1.0, maximum_reduction_ratio);
+		// }
+
+		// iq_set_tmp = iq_set_tmp * reduction_ratio; // in the future only cap generating currents:
+		
+		// // trick mppt end;
+
+		// MPPT trick v2 
+
 		float reduction_ratio = 1.0;
+		float battery_high_cut_start = 42.0;
+		float battery_high_cut_end = 47.0;
+		float v = motor_now->m_motor_state.v_bus_faster;
+		float ratio_start = 0.4;
 		
-		if (motor_now->m_motor_state.v_bus_faster > battery_low_cut_start) {
-			reduction_ratio = 1.0;
-		} else if (motor_now->m_motor_state.v_bus_faster < battery_low_cut_end) {
-			reduction_ratio = maximum_reduction_ratio;
+		if (v < battery_high_cut_start) {
+        	reduction_ratio = (v/battery_high_cut_start)*(1-ratio_start) + ratio_start;
+		} else if( v < battery_high_cut_end ) { 
+			reduction_ratio = (battery_high_cut_end -v ) / (battery_high_cut_end - battery_high_cut_start);
 		} else {
-			reduction_ratio = utils_map(motor_now->m_motor_state.v_bus_faster, battery_low_cut_start,
-					battery_low_cut_end, 1.0, maximum_reduction_ratio);
+			reduction_ratio = 0;
 		}
 
-		iq_set_tmp = iq_set_tmp * reduction_ratio; // in the future only cap generating currents:
+		iq_set_tmp = iq_set_tmp * reduction_ratio;
 		
-		// trick mppt end;
-
-
-		if (mod_q > 0.0) {
-			utils_truncate_number(&iq_set_tmp, conf_now->lo_current_min, conf_now->lo_current_max);
-		} else {
-			utils_truncate_number(&iq_set_tmp, -conf_now->lo_current_max, -conf_now->lo_current_min);
-		}
-
+		// MPPT trick v2 END 
 
 		if (mod_q > 0.0) {
 			utils_truncate_number(&iq_set_tmp, conf_now->lo_current_min, conf_now->lo_current_max);
